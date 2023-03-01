@@ -29,11 +29,11 @@ const WaterMark = (props: WaterMarkProps) => {
     if (!cavasRef.current) {
       cavasRef.current = document.createElement('canvas');
     }
-  }, []);
+  }, [cavasRef.current]);
 
   const ctx = useMemo(() => {
     return cavasRef.current?.getContext('2d');
-  }, []);
+  }, [cavasRef.current]);
 
   // 获取设备像素比
   const ratio = window.devicePixelRatio | 1;
@@ -53,7 +53,7 @@ const WaterMark = (props: WaterMarkProps) => {
       cavasRef.current.setAttribute('width', `${canvasWidth}px`);
       cavasRef.current.setAttribute('height', `${canvasHeight}px`);
     }
-  }, []);
+  }, [cavasRef.current]);
 
   useEffect(() => {
     if (ctx) {
@@ -96,7 +96,7 @@ const WaterMark = (props: WaterMarkProps) => {
 
       cavasRef.current && setBase64Url(cavasRef.current.toDataURL());
     }
-  }, [ctx, width, height]);
+  }, [ctx, width, height, cavasRef, alpha, setBase64Url]);
 
   return (
     <div
@@ -113,7 +113,6 @@ const WaterMark = (props: WaterMarkProps) => {
           backgroundImage: `url(${base64Url})`,
         }}
       ></div>
-      {/* <canvas ref={cavasRef} /> */}
       {children}
     </div>
   );
