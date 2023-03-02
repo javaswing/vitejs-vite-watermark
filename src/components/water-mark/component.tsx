@@ -1,4 +1,4 @@
-import { MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, useCallback, useEffect, useRef } from "react";
 import { WaterMarkProps } from "./type";
 
 const WaterMark = (props: WaterMarkProps) => {
@@ -12,8 +12,15 @@ const WaterMark = (props: WaterMarkProps) => {
     className,
     style = {},
     children,
-    content = "",
+    watermarkContent = {},
   } = props;
+
+  const {
+    text = "",
+    fontColor = "rgba(0, 0, 0, .15)",
+    fontSize = 16,
+    fontWeight = "normal",
+  } = watermarkContent;
 
   let gapX = x; // 水平间隙
   let gapY = y; // 垂直间隙
@@ -21,20 +28,13 @@ const WaterMark = (props: WaterMarkProps) => {
   const offsetLeft = gapX / 2;
   const offsetTop = gapY / 2;
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [base64Url, setBase64Url] = useState("");
-
-  const watermarkRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    // 1. 创建canvas 对象
-    if (!canvasRef.current) {
-      canvasRef.current = document.createElement("canvas");
-    }
-  }, [canvasRef.current]);
-
   // 获取设备像素比
   const ratio = window.devicePixelRatio | 1;
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const watermarkRef = useRef<HTMLDivElement | null>(null);
+
+  const stopObserver = useRef(false);
 
   /**
    * 这里之所以对于canvas的宽和高要加上间隙的距离
@@ -43,77 +43,136 @@ const WaterMark = (props: WaterMarkProps) => {
   const canvasWidth = (gapX + width) * ratio;
   const canvasHeight = (gapY + height) * ratio;
 
-  useEffect(() => {
-    if (canvasRef.current) {
-      canvasRef.current.width = width;
-      canvasRef.current.height = height;
-      canvasRef.current.style.background = "#d1eee0";
-      canvasRef.current.setAttribute("width", `${canvasWidth}px`);
-      canvasRef.current.setAttribute("height", `${canvasHeight}px`);
+  const renderWatermark = useCallback(() => {
+    const canvas = document.createElement("canvas");
 
-      const ctx = canvasRef.current.getContext("2d");
-      if (ctx) {
-        /**
-         * 平移当前canvas的原点
-         * offsetLeft offsetRight为间隙的一半
-         * 这段设置的作用是用于调整canvas的画笔位置，让下笔点在对于双边的间隙都是相等（即让水印在canvas居中位置出现）
-         */
-        ctx.translate(offsetLeft * ratio, offsetTop * ratio);
+    canvas.width = width;
+    canvas.height = height;
 
-        /**
-         * 旋转canvas，默认顺时针旋转
-         * (Math.PI / 180) * number 把角度转换为弧度，canvas API参数类型为弧度
-         */
-        ctx.rotate((Math.PI / 180) * Number(rotate));
+    canvas.setAttribute("width", `${canvasWidth}px`);
+    canvas.setAttribute("height", `${canvasHeight}px`);
 
-        // 设置画笔的透明度
-        ctx.globalAlpha = alpha;
+    const ctx = canvas.getContext("2d");
 
-        // 设置水印的位置区域
-        const markWidth = width * ratio;
-        const markHeight = height * ratio;
-        ctx.fillStyle = "transparent";
-        ctx.fillRect(0, 0, markWidth, markHeight);
-
-        // 样式默认值
-        const fontSize = 16;
-        const fontWeight = "normal";
-        const fontColor = "rgba(0, 0, 0, 0.1)";
-
-        // 画字
-        const markSize = Number(fontSize) * ratio;
-        // 参考：https://developer.mozilla.org/zh-CN/docs/Web/CSS/font
-        // marHeight在这里是行高
-        ctx.font = `normal normal ${fontWeight} ${markSize}px/${markHeight}px undefined`;
-        ctx.textAlign = "start";
-        ctx.textBaseline = "top";
-        ctx.fillStyle = fontColor;
-        ctx.fillText(content, 0, 0);
-
-        canvasRef.current && setBase64Url(canvasRef.current.toDataURL());
-      }
+    if (!text) {
+      console.warn("watermark text is empty");
+      return;
     }
-  }, [canvasRef.current]);
+
+    if (ctx) {
+      stopObserver.current = true;
+      /**
+       * 平移当前canvas的原点
+       * offsetLeft offsetRight为间隙的一半
+       * 这段设置的作用是用于调整canvas的画笔位置，让下笔点在对于双边的间隙都是相等（即让水印在canvas居中位置出现）
+       */
+      ctx.translate(offsetLeft * ratio, offsetTop * ratio);
+
+      /**
+       * 旋转canvas，默认顺时针旋转
+       * (Math.PI / 180) * number 把角度转换为弧度，canvas API参数类型为弧度
+       */
+      ctx.rotate((Math.PI / 180) * Number(rotate));
+
+      // 设置画笔的透明度
+      ctx.globalAlpha = alpha;
+
+      // 设置水印的位置区域
+      const markWidth = width * ratio;
+      const markHeight = height * ratio;
+      ctx.fillStyle = "transparent";
+      ctx.fillRect(0, 0, markWidth, markHeight);
+
+      // 画字
+      const markSize = Number(fontSize) * ratio;
+      // 参考：https://developer.mozilla.org/zh-CN/docs/Web/CSS/font
+      // marHeight在这里是行高
+      ctx.font = `normal normal ${fontWeight} ${markSize}px/${markHeight}px undefined`;
+      ctx.textAlign = "start";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = fontColor;
+      ctx.fillText(text, 0, 0);
+
+      const styles = {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundSize: `${gapX + width}px`,
+        backgroundImage: `url(${canvas.toDataURL()})`,
+      } as CSSProperties;
+
+      watermarkRef.current = document.createElement("div");
+
+      Object.assign(watermarkRef.current.style, styles);
+
+      containerRef.current?.appendChild(watermarkRef.current);
+
+      // 暂时不知道为什么添加setTimeout
+      setTimeout(() => {
+        stopObserver.current = false;
+      });
+    }
+  }, [
+    width,
+    height,
+    ratio,
+    x,
+    y,
+    rotate,
+    fontColor,
+    fontSize,
+    fontWeight,
+    text,
+  ]);
+
+  const destroyWatermark = () => {
+    if (watermarkRef.current) {
+      watermarkRef.current.remove();
+      watermarkRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    renderWatermark();
+  }, [renderWatermark]);
 
   // 监听dom修改如果用户修改了dom，再进行动态添加水印,利用 MutationObserver
   const config = { attributes: true, childList: true, subtree: true };
-  const parent = useRef<HTMLElement>(null);
 
-  // 监听当前节点修改的问题
+  // 监听当前节点修改的进行修复
   const observer = new MutationObserver(
     (mutations: MutationRecord[], observer: MutationObserver) => {
+      console.log("stopObserver", stopObserver);
+      if (stopObserver.current) return;
+      let rerender = false;
       mutations.forEach((mutation) => {
         console.log("mutation", mutation);
         if (mutation.type === "childList") {
+          // 修改节点状态
           const removeNodes = mutation.removedNodes;
           removeNodes.forEach((node) => {
             const e = node as HTMLElement;
-            // if (e === watermarkRef.current) {
-            watermarkRef.current?.appendChild(e);
-            // }
+            if (e === watermarkRef.current) {
+              rerender = true;
+            }
           });
+        } else if (
+          mutation.type === "attributes" &&
+          mutation.target === watermarkRef.current
+        ) {
+          // 修改节点CSS属性
+          rerender = true;
         }
       });
+
+      console.log("rerender", rerender);
+      if (rerender) {
+        destroyWatermark();
+
+        renderWatermark();
+      }
     }
   );
   useEffect(() => {
@@ -121,25 +180,14 @@ const WaterMark = (props: WaterMarkProps) => {
     return () => {
       observer.disconnect();
     };
-  }, []);
+  }, [watermarkRef.current]);
 
   return (
     <div
+      ref={containerRef}
       className={className}
       style={{ position: "relative", overflow: "hidden", ...style }}
-      ref={watermarkRef}
     >
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundSize: `${gapX + width}px`,
-          backgroundImage: `url(${base64Url})`,
-        }}
-      ></div>
       {children}
     </div>
   );
