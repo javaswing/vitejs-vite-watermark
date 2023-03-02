@@ -43,7 +43,45 @@ const WaterMark = (props: WaterMarkProps) => {
   const canvasWidth = (gapX + width) * ratio;
   const canvasHeight = (gapY + height) * ratio;
 
-  const renderWatermark = useCallback(() => {
+  // 监听dom修改如果用户修改了dom，再进行动态添加水印,利用 MutationObserver
+  const config = { attributes: true, childList: true, subtree: true };
+
+  // 监听当前节点修改的进行修复
+  const observer = new MutationObserver(
+    (mutations: MutationRecord[], observer: MutationObserver) => {
+      if (stopObserver.current) return;
+      let rerender = false;
+      mutations.forEach((mutation) => {
+        console.log("mutation", mutation);
+        if (mutation.type === "childList") {
+          // 修改节点状态
+          const removeNodes = mutation.removedNodes;
+          removeNodes.forEach((node) => {
+            const e = node as HTMLElement;
+            if (e === watermarkRef.current) {
+              rerender = true;
+            }
+          });
+        } else if (
+          mutation.type === "attributes" &&
+          mutation.target === watermarkRef.current
+        ) {
+          // 修改节点CSS属性
+          rerender = true;
+        }
+      });
+
+      console.log("rerender", rerender);
+      if (rerender) {
+        destroyWatermark();
+
+        renderWatermark();
+      }
+    }
+  );
+
+  const renderWatermark = () => {
+    // console.log("renderwatermark");
     const canvas = document.createElement("canvas");
 
     canvas.width = width;
@@ -60,7 +98,11 @@ const WaterMark = (props: WaterMarkProps) => {
     }
 
     if (ctx) {
-      stopObserver.current = true;
+      if (!watermarkRef.current) {
+        // 组件会render两次 ？？？
+        watermarkRef.current = document.createElement("div");
+      }
+
       /**
        * 平移当前canvas的原点
        * offsetLeft offsetRight为间隙的一半
@@ -93,6 +135,7 @@ const WaterMark = (props: WaterMarkProps) => {
       ctx.fillStyle = fontColor;
       ctx.fillText(text, 0, 0);
 
+      stopObserver.current = true;
       const styles = {
         position: "absolute",
         top: 0,
@@ -103,17 +146,29 @@ const WaterMark = (props: WaterMarkProps) => {
         backgroundImage: `url(${canvas.toDataURL()})`,
       } as CSSProperties;
 
-      watermarkRef.current = document.createElement("div");
-
       Object.assign(watermarkRef.current.style, styles);
 
       containerRef.current?.appendChild(watermarkRef.current);
+
+      observer.observe(watermarkRef.current, config);
 
       // 暂时不知道为什么添加setTimeout
       setTimeout(() => {
         stopObserver.current = false;
       });
     }
+  };
+
+  const destroyWatermark = () => {
+    if (watermarkRef.current) {
+      observer.disconnect();
+      watermarkRef.current.remove();
+      watermarkRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    renderWatermark();
   }, [
     width,
     height,
@@ -126,61 +181,6 @@ const WaterMark = (props: WaterMarkProps) => {
     fontWeight,
     text,
   ]);
-
-  const destroyWatermark = () => {
-    if (watermarkRef.current) {
-      watermarkRef.current.remove();
-      watermarkRef.current = null;
-    }
-  };
-
-  useEffect(() => {
-    renderWatermark();
-  }, [renderWatermark]);
-
-  // 监听dom修改如果用户修改了dom，再进行动态添加水印,利用 MutationObserver
-  const config = { attributes: true, childList: true, subtree: true };
-
-  // 监听当前节点修改的进行修复
-  const observer = new MutationObserver(
-    (mutations: MutationRecord[], observer: MutationObserver) => {
-      console.log("stopObserver", stopObserver);
-      if (stopObserver.current) return;
-      let rerender = false;
-      mutations.forEach((mutation) => {
-        console.log("mutation", mutation);
-        if (mutation.type === "childList") {
-          // 修改节点状态
-          const removeNodes = mutation.removedNodes;
-          removeNodes.forEach((node) => {
-            const e = node as HTMLElement;
-            if (e === watermarkRef.current) {
-              rerender = true;
-            }
-          });
-        } else if (
-          mutation.type === "attributes" &&
-          mutation.target === watermarkRef.current
-        ) {
-          // 修改节点CSS属性
-          rerender = true;
-        }
-      });
-
-      console.log("rerender", rerender);
-      if (rerender) {
-        destroyWatermark();
-
-        renderWatermark();
-      }
-    }
-  );
-  useEffect(() => {
-    watermarkRef.current && observer.observe(watermarkRef.current, config);
-    return () => {
-      observer.disconnect();
-    };
-  }, [watermarkRef.current]);
 
   return (
     <div
