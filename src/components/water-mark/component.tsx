@@ -1,5 +1,6 @@
-import { CSSProperties, useCallback, useEffect, useRef } from "react";
+import { CSSProperties, useEffect, useRef } from "react";
 import { WaterMarkProps } from "./type";
+import useMutationObserver from "./useMutationObserver";
 
 const WaterMark = (props: WaterMarkProps) => {
   const {
@@ -31,9 +32,8 @@ const WaterMark = (props: WaterMarkProps) => {
   // 获取设备像素比
   const ratio = window.devicePixelRatio | 1;
 
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const watermarkRef = useRef<HTMLDivElement | null>(null);
-
+  const containerRef = useRef<HTMLDivElement>(null);
+  const watermarkRef = useRef<HTMLDivElement>();
   const stopObserver = useRef(false);
 
   /**
@@ -43,52 +43,37 @@ const WaterMark = (props: WaterMarkProps) => {
   const canvasWidth = (gapX + width) * ratio;
   const canvasHeight = (gapY + height) * ratio;
 
-  // 监听dom修改如果用户修改了dom，再进行动态添加水印,利用 MutationObserver
-  const config = { attributes: true, childList: true, subtree: true };
-
   // 监听当前节点修改的进行修复
-  const observer = new MutationObserver(
-    (mutations: MutationRecord[], observer: MutationObserver) => {
-      if (stopObserver.current) return;
-      let rerender = false;
-      mutations.forEach((mutation) => {
-        console.log("mutation", mutation);
-        if (mutation.type === "childList") {
-          // 修改节点状态
-          const removeNodes = mutation.removedNodes;
-          removeNodes.forEach((node) => {
-            const e = node as HTMLElement;
-            if (e === watermarkRef.current) {
-              rerender = true;
-            }
-          });
-        } else if (
-          mutation.type === "attributes" &&
-          mutation.target === watermarkRef.current
-        ) {
-          // 修改节点CSS属性
-          rerender = true;
-        }
-      });
-
-      console.log("rerender", rerender);
-      if (rerender) {
-        destroyWatermark();
-
-        renderWatermark();
+  const observerCallBack = (mutations: MutationRecord[]) => {
+    if (stopObserver.current) return;
+    let rerender = false;
+    mutations.forEach((mutation) => {
+      if (mutation.type === "childList") {
+        // 修改节点状态
+        const removeNodes = mutation.removedNodes;
+        removeNodes.forEach((node) => {
+          const e = node as HTMLElement;
+          if (e === watermarkRef.current) {
+            rerender = true;
+          }
+        });
+      } else if (
+        mutation.type === "attributes" &&
+        mutation.target === watermarkRef.current
+      ) {
+        // 修改节点CSS属性
+        rerender = true;
       }
+    });
+
+    if (rerender) {
+      destroyWatermark();
+      renderWatermark();
     }
-  );
+  };
 
   const renderWatermark = () => {
-    // console.log("renderwatermark");
     const canvas = document.createElement("canvas");
-
-    canvas.width = width;
-    canvas.height = height;
-
-    canvas.setAttribute("width", `${canvasWidth}px`);
-    canvas.setAttribute("height", `${canvasHeight}px`);
 
     const ctx = canvas.getContext("2d");
 
@@ -99,9 +84,14 @@ const WaterMark = (props: WaterMarkProps) => {
 
     if (ctx) {
       if (!watermarkRef.current) {
-        // 组件会render两次 ？？？
         watermarkRef.current = document.createElement("div");
       }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      canvas.setAttribute("width", `${canvasWidth}px`);
+      canvas.setAttribute("height", `${canvasHeight}px`);
 
       /**
        * 平移当前canvas的原点
@@ -124,6 +114,8 @@ const WaterMark = (props: WaterMarkProps) => {
       const markHeight = height * ratio;
       ctx.fillStyle = "transparent";
       ctx.fillRect(0, 0, markWidth, markHeight);
+
+      ctx.save();
 
       // 画字
       const markSize = Number(fontSize) * ratio;
@@ -150,8 +142,6 @@ const WaterMark = (props: WaterMarkProps) => {
 
       containerRef.current?.appendChild(watermarkRef.current);
 
-      observer.observe(watermarkRef.current, config);
-
       // 暂时不知道为什么添加setTimeout
       setTimeout(() => {
         stopObserver.current = false;
@@ -161,9 +151,8 @@ const WaterMark = (props: WaterMarkProps) => {
 
   const destroyWatermark = () => {
     if (watermarkRef.current) {
-      observer.disconnect();
       watermarkRef.current.remove();
-      watermarkRef.current = null;
+      watermarkRef.current = undefined;
     }
   };
 
@@ -181,6 +170,7 @@ const WaterMark = (props: WaterMarkProps) => {
     fontWeight,
     text,
   ]);
+  useMutationObserver(containerRef, observerCallBack);
 
   return (
     <div
